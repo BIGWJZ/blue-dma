@@ -122,18 +122,19 @@ function Tuple2#(StreamWithPtr, StreamWithPtr) getConcatStream (StreamWithPtr st
     return tuple2(concatStreamWithPtr, remainStreamWithPtr);
 endfunction
 
-typedef 3 STREAM_SPLIT_LATENCY;
+typedef 5 STREAM_SPLIT_LATENCY;
+typedef 3 STREAM_SPLIT_INNER_LATENCY;
 
 module mkStreamSplit(StreamSplit ifc);
 
     Reg#(StreamSize) streamByteCntReg <- mkReg(0);
 
-    FIFOF#(StreamSize)    splitLocationFifo <- mkSizedFIFOF(valueOf(STREAM_SPLIT_LATENCY));
+    FIFOF#(StreamSize)    splitLocationFifo <- mkSizedFIFOF(valueOf(STREAM_SPLIT_INNER_LATENCY));
     FIFOF#(DataStream)    inputFifo         <- mkFIFOF;
     FIFOF#(DataStream)    outputFifo        <- mkFIFOF;
     FIFOF#(StreamWithPtr) prepareFifo       <- mkFIFOF;
     FIFOF#(StreamWithPtr) assertFifo        <- mkFIFOF;
-    FIFOF#(DataBytePtr)   splitPtrFifo      <- mkSizedFIFOF(valueOf(STREAM_SPLIT_LATENCY));
+    FIFOF#(DataBytePtr)   splitPtrFifo      <- mkSizedFIFOF(valueOf(STREAM_SPLIT_INNER_LATENCY));
 
     Reg#(StreamWithPtr)   remainStreamWpReg <- mkRegU;
 
@@ -379,7 +380,7 @@ typedef 2 STREAM_ALIGN_DW_LATENCY;
 
 module mkStreamShiftAlignToDw#(DataBytePtr offset)(StreamShiftAlignToDw);
     FIFOF#(DataStream) dataInFifo     <- mkFIFOF;
-    FIFOF#(DataStream) pipeFifo       <- mkFIFOF;
+    // FIFOF#(DataStream) pipeFifo       <- mkFIFOF;
     FIFOF#(DataStream) dataOutFifo    <- mkFIFOF;
     FIFOF#(AlignDwMode) alignModeFifo <- mkFIFOF;
 
@@ -393,10 +394,10 @@ module mkStreamShiftAlignToDw#(DataBytePtr offset)(StreamShiftAlignToDw);
     ByteEn byteEnMask2 = 1 << (offset + 1) | byteEnMask1 ;
     ByteEn byteEnMask3 = 1 << (offset + 2) | byteEnMask2;
     
-    rule pipe;
-        pipeFifo.enq(dataInFifo.first);
-        dataInFifo.deq;
-    endrule
+    // rule pipe;
+    //     pipeFifo.enq(dataInFifo.first);
+    //     dataInFifo.deq;
+    // endrule
 
     rule execShift;
         if (hasLastRemainReg) begin
@@ -405,8 +406,10 @@ module mkStreamShiftAlignToDw#(DataBytePtr offset)(StreamShiftAlignToDw);
             remainStreamReg <= getEmptyStream;
         end
         else begin
-            let stream = pipeFifo.first;
-            pipeFifo.deq;
+            // let stream = pipeFifo.first;
+            // pipeFifo.deq;
+            let stream = dataInFifo.first;
+            dataInFifo.deq;
             let shiftStream = DataStream {
                 data    : stream.data << offsetBits,
                 byteEn  : stream.byteEn << offset  ,

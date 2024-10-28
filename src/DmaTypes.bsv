@@ -30,6 +30,9 @@ typedef TAdd#(1, TLog#(BUS_BOUNDARY))       BUS_BOUNDARY_WIDTH;
 
 typedef 128                                 DEFAULT_TLP_SIZE;
 typedef TLog#(DEFAULT_TLP_SIZE)             DEFAULT_TLP_SIZE_WIDTH;
+// Only support max to 512bytes TLP for resouce saving
+typedef 512                                 MAX_TLP_SIZE;
+typedef TLog#(MAX_TLP_SIZE)                 MAX_TLP_SIZE_WIDTH;
 typedef Bit#(BUS_BOUNDARY_WIDTH)            TlpPayloadSize;
 typedef Bit#(TLog#(BUS_BOUNDARY_WIDTH))     TlpPayloadSizeWidth;
 
@@ -56,6 +59,9 @@ typedef Bit#(TAdd#(1, TLog#(DWORD_EN_WIDTH))) DataDwordPtr;
 typedef Bit#(TAdd#(1, TLog#(DWORD_BYTES)))    DWordBytePtr;
 typedef Bit#(BYTE_DWORD_SHIFT_WIDTH)          ByteModDWord;
 typedef 2'b11                                 MaxByteModDword;
+
+typedef TSub#(BUS_BOUNDARY_WIDTH, MAX_TLP_SIZE_WIDTH) READ_REQ_CNT_WIDTH;
+typedef Bit#(READ_REQ_CNT_WIDTH)              DmaReadReqCnt;
 
 typedef struct {
     DmaMemAddr startAddr;
@@ -189,7 +195,7 @@ typedef Bit#(PCIE_STRADDLE_WIDTH) StraddleNo;
 typedef TSub#(DES_NONEXTENDED_TAG_WIDTH, 1) SLOT_TOKEN_WIDTH;
 typedef Bit#(SLOT_TOKEN_WIDTH) SlotToken;
 typedef 16 SLOT_PER_PATH;
-typedef TAdd#(1, TDiv#(BUS_BOUNDARY, BYTE_EN_WIDTH)) MAX_STREAM_NUM_PER_COMPLETION;
+typedef TAdd#(1, TDiv#(MAX_TLP_SIZE, BYTE_EN_WIDTH)) MAX_STREAM_NUM_PER_COMPLETION;
 
 // Internal Registers 
 /* Block 1 - DMA inner Ctrl Regs
@@ -232,7 +238,7 @@ typedef Bit#(TLog#(PA_NUM)) PaBramAddr;
 typedef 2 PA_TABLE0_BLOCK_OFFSET;
 typedef 4 PA_TABLE1_BLOCK_OFFSET;
 
-typedef 1 IS_HUGE_PAGE;
+typedef 0 IS_HUGE_PAGE;
 
 typedef 4096 PAGE_SIZE;
 typedef TLog#(PAGE_SIZE) PAGE_SIZE_WIDTH;

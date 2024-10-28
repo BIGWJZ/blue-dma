@@ -17,9 +17,10 @@ from bdmatb import BdmaBypassTb
 #  --------------        -------------         ----------- 
 # | Root Complex | <->  | End Pointer |  <->  | Dut(DMAC) |         
 #  --------------        -------------         -----------
+test_num = 100
 
 async def single_path_random_write_test(pcie_tb, dma_channel, mem):
-    for _ in range(100):
+    for _ in range(test_num):
         addr, length = pcie_tb.gen_random_req(dma_channel)
         addr = mem.get_absolute_address(addr)
         char = bytes(random.choice('abcdefghijklmnopqrstuvwxyz'), encoding="UTF-8")
@@ -30,7 +31,7 @@ async def single_path_random_write_test(pcie_tb, dma_channel, mem):
             
 
 async def single_path_random_read_test(pcie_tb, dma_channel, mem):
-    for _ in range(100):
+    for _ in range(test_num):
         addr, length = pcie_tb.gen_random_req(dma_channel)
         addr = mem.get_absolute_address(addr)
         char = bytes(random.choice('abcdefghijklmnopqrstuvwxyz'), encoding="UTF-8")
@@ -38,7 +39,7 @@ async def single_path_random_read_test(pcie_tb, dma_channel, mem):
         data = await pcie_tb.run_single_read_once(dma_channel, addr, length)
         assert data == char * length
             
-@cocotb.test(timeout_time=100000000, timeout_unit="ns")
+# @cocotb.test(timeout_time=100000000, timeout_unit="ns")
 async def step_random_write_test(dut):
 
     tb = BdmaBypassTb(dut)

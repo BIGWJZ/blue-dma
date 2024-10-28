@@ -1,7 +1,7 @@
 include ../Makefile.base
 
-TESTFILE ?= TestSimpleUtils.bsv
-TOPMODULE ?= mkTestSimpleH2CCore
+TESTFILE ?= TestDmaCore.bsv
+TOPMODULE ?= mkSimpleConvertDataStreamsToStraddleAxisTb
 
 SIMSCRIPT = $(BUILDDIR)/$(TOPMODULE).sh
 

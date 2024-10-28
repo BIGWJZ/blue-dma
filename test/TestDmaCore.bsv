@@ -31,13 +31,13 @@ module mkChunkComputerTb(Empty);
     Reg#(UInt#(32))  testCntReg  <- mkReg(0); 
     Reg#(UInt#(32))  epochCntReg <- mkReg(0); 
 
-    Reg#(DmaMemAddr) lenRemainReg <- mkReg(0);
+    Reg#(DmaReqLen) lenRemainReg <- mkReg(0);
 
     Randomize#(DmaMemAddr) startAddrRandomVal <- mkConstrainedRandomizer(0, fromInteger(valueOf(MAX_ADDRESS)-1));
-    Randomize#(DmaMemAddr) lengthRandomVal    <- mkConstrainedRandomizer(1, fromInteger(valueOf(MAX_TEST_LENGTH)));
+    Randomize#(DmaReqLen) lengthRandomVal    <- mkConstrainedRandomizer(1, fromInteger(valueOf(MAX_TEST_LENGTH)));
 
     function Bool hasBoundary(DmaRequest request);
-        let highIdx = (request.startAddr + request.length - 1) >> valueOf(BUS_BOUNDARY_WIDTH);
+        let highIdx = (request.startAddr + zeroExtend(request.length) - 1) >> valueOf(BUS_BOUNDARY_WIDTH);
         let lowIdx = request.startAddr >> valueOf(BUS_BOUNDARY_WIDTH);
         return (highIdx > lowIdx);
     endfunction
@@ -46,20 +46,21 @@ module mkChunkComputerTb(Empty);
         startAddrRandomVal.cntrl.init;
         lengthRandomVal.cntrl.init;
         isInitReg <= True;
-        dut.setTlpMaxSize.put(fromInteger(valueOf(DEFAULT_TLP_SIZE_SETTING)));
+        dut.maxReadReqSize.put(tuple2(fromInteger(valueOf(DEFAULT_TLP_SIZE)), fromInteger(valueOf(DEFAULT_TLP_SIZE_WIDTH))));
         $display("INFO: Start Test of mkChunkComputerTb");
         $display("INFO: Set Max Payload Size to ", valueOf(DEFAULT_TLP_SIZE));
     endrule
 
     rule testInput if (isInitReg && lenRemainReg == 0);
         DmaMemAddr testAddr <- startAddrRandomVal.next;
-        DmaMemAddr testLength <- lengthRandomVal.next;
-        let testEnd = testAddr + testLength - 1;
+        DmaReqLen testLength <- lengthRandomVal.next;
+        let testEnd = testAddr + zeroExtend(testLength) - 1;
         if (testEnd > testAddr && testEnd <= fromInteger(valueOf(MAX_ADDRESS))) begin 
-            let request = DmaRequest{
+            let request = DmaExtendRequest{
                 startAddr : testAddr,
+                endAddr   : testAddr + zeroExtend(testLength),
                 length    : testLength,
-                isWrite   : False
+                tag       : 0
             };
             lenRemainReg <= testLength;
             dut.dmaRequestFifoIn.enq(request);
@@ -92,9 +93,10 @@ module mkChunkComputerTb(Empty);
                     $finish();
                 end 
                 else begin
-                    PcieTlpSizeSetting newSetting = fromInteger(valueOf(DEFAULT_TLP_SIZE_SETTING)) + truncate(pack(testCntReg)) + 1;
-                    dut.setTlpMaxSize.put(newSetting);
-                    $display("INFO: Set Max Payload Size to ", pack(fromInteger(valueOf(DEFAULT_TLP_SIZE)) << newSetting));
+                    TlpPayloadSizeWidth mpsWidth = fromInteger(valueOf(DEFAULT_TLP_SIZE_WIDTH)) + truncate(pack(testCntReg));
+                    TlpPayloadSize mps = 1 << mpsWidth;
+                    dut.maxReadReqSize.put(tuple2(mps, mpsWidth));
+                    $display("INFO: Set Max Payload Size to  %d", mps);
                 end
             end
         end
@@ -104,11 +106,11 @@ endmodule
 
 // Do not use any simple tests, run cocotb for whole verification
 
-typedef 60 SIMPLE_TEST_BYTELEN;
+typedef 25 SIMPLE_TEST_BYTELEN;
 typedef 'hABCDEF SIMPLE_TEST_ADDR;
 
 module mkSimpleC2HWriteCoreTb(Empty);
-    C2HWriteCore dut <- mkC2HWriteCore;
+    C2HWriteCore dut <- mkC2HWriteCore(0);
     Reg#(UInt#(32)) testCntReg <- mkReg(0);
 
     rule testInput if (testCntReg < 1);
@@ -275,7 +277,7 @@ module mkSimpleC2HReadCoreTb(Empty);
 endmodule
 
 module simpleWritePathTb(Empty);
-    C2HWriteCore c2hWriteCore <- mkC2HWriteCore;
+    C2HWriteCore c2hWriteCore <- mkC2HWriteCore(0);
     ConvertDataStreamsToStraddleAxis adapter <- mkConvertDataStreamsToStraddleAxis;
     mkConnection(c2hWriteCore.tlpFifoOut, adapter.dataFifoIn[0]);
     mkConnection(c2hWriteCore.tlpSideBandFifoOut, adapter.byteEnFifoIn[0]);

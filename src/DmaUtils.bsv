@@ -23,7 +23,7 @@ typedef 4 CHUNK_COMPUTE_LATENCY;
 interface ChunkCompute;
     interface FifoIn#(DmaExtendRequest)  dmaRequestFifoIn;
     interface FifoOut#(DmaRequest)       chunkRequestFifoOut;
-    // interface FifoOut#(DmaMemAddr)       chunkCntFifoOut;
+    interface FifoOut#(DmaReadReqCnt)    reqCntFifoOut;
     interface Put#(Tuple2#(TlpPayloadSize, TlpPayloadSizeWidth)) maxReadReqSize;
 endinterface 
 
@@ -32,10 +32,14 @@ module mkChunkComputer (TRXDirection direction, ChunkCompute ifc);
     FIFOF#(DmaExtendRequest)  inputFifo  <- mkFIFOF;
     FIFOF#(DmaRequest)        outputFifo <- mkFIFOF;
     FIFOF#(Tuple2#(DmaExtendRequest, DmaReqLen))  pipeFifo <- mkFIFOF;
+    FIFOF#(DmaReadReqCnt)     rdReqCntFifo <- mkFIFOF;
 
     Reg#(DmaMemAddr) newChunkPtrReg      <- mkReg(0);
     Reg#(DmaReqLen)  totalLenRemainReg   <- mkReg(0);
     Reg#(Bool)       isSplittingReg      <- mkReg(False);
+
+    FIFOF#(Bool)     mrrsFlagFifo        <- mkFIFOF;
+    Reg#(DmaReadReqCnt) rdReqCntReg      <- mkReg(0);
     
     Reg#(DmaReqLen)           tlpMaxSizeReg      <- mkReg(fromInteger(valueOf(DEFAULT_TLP_SIZE)));
     Reg#(TlpPayloadSizeWidth) tlpMaxSizeWidthReg <- mkReg(fromInteger(valueOf(DEFAULT_TLP_SIZE_WIDTH)));   
@@ -84,6 +88,7 @@ module mkChunkComputer (TRXDirection direction, ChunkCompute ifc);
                     isWrite   : False
                 });
                 pipeFifo.deq;
+                mrrsFlagFifo.enq(True);  // this mrrs is done
                 totalLenRemainReg <= 0;
             end 
             else begin
@@ -93,6 +98,7 @@ module mkChunkComputer (TRXDirection direction, ChunkCompute ifc);
                     length    : tlpMaxSizeReg,
                     isWrite   : False
                 });
+                mrrsFlagFifo.enq(False); // this mrrs not done
                 newChunkPtrReg <= newChunkPtrReg + zeroExtend(tlpMaxSizeReg);
                 totalLenRemainReg <= totalLenRemainReg - tlpMaxSizeReg;
             end
@@ -109,13 +115,29 @@ module mkChunkComputer (TRXDirection direction, ChunkCompute ifc);
             if (!isSplittingNextCycle) begin 
                 pipeFifo.deq; 
             end
+            mrrsFlagFifo.enq(!isSplittingNextCycle);  // this mrrs is done
             newChunkPtrReg <= request.startAddr + zeroExtend(firstChunkLen);
             totalLenRemainReg <= remainderLength;
         end
     endrule
 
+    rule getMrrsReq;
+        let flag = mrrsFlagFifo.first;
+        mrrsFlagFifo.deq;
+        if (flag) begin
+            rdReqCntFifo.enq(rdReqCntReg + 1);
+            rdReqCntReg <= 0;
+            // $display($time, "ns SIM INFO @ mkChunkCompute: split new request to %d MRRS reqs", rdReqCntReg + 1);
+        end 
+        else begin
+            rdReqCntReg <= rdReqCntReg + 1;
+        end
+        
+    endrule
+
     interface  dmaRequestFifoIn = convertFifoToFifoIn(inputFifo);
     interface  chunkRequestFifoOut = convertFifoToFifoOut(outputFifo);
+    interface reqCntFifoOut    = convertFifoToFifoOut(rdReqCntFifo);
 
     interface Put maxReadReqSize;
         method Action put (Tuple2#(TlpPayloadSize, TlpPayloadSizeWidth) mrrsCfg);
@@ -275,11 +297,11 @@ module mkChunkSplit(TRXDirection direction, ChunkSplit ifc);
                     reqOutFifo.enq(chunkReq);
                 end
             end
+            // $display($time, "ns SIM INFO @ mkChunkSplit: output chunkReq.");
             nextStartAddrReg <= nextStartAddr;
             remainLenReg <= remainLen;
             isInSplitReg <= (remainLen != 0);
         end
-        
         chunkOutFifo.enq(stream);
     endrule
 
@@ -320,7 +342,7 @@ module mkRqDescriptorGenerator#(Bool isWrite)(RqDescriptorGenerator);
         DataBytePtr bytePtr = fromInteger(valueOf(TDiv#(DES_RQ_DESCRIPTOR_WIDTH, BYTE_WIDTH)));
         let descriptor  = PcieRequesterRequestDescriptor {
                 forceECRC       : False,
-                attributes      : 0,
+                attributes      : fromInteger(valueof(ATTR_NO_SNOOP)),
                 trafficClass    : 0,
                 requesterIdEn   : False,
                 completerId     : 0,
@@ -330,7 +352,7 @@ module mkRqDescriptorGenerator#(Bool isWrite)(RqDescriptorGenerator);
                 reqType         : isWrite ? fromInteger(valueOf(MEM_WRITE_REQ)) : fromInteger(valueOf(MEM_READ_REQ)),
                 dwordCnt        : dwCnt,
                 address         : truncate(exReq.startAddr >> valueOf(BYTE_DWORD_SHIFT_WIDTH)),
-                addrType        : fromInteger(valueOf(TRANSLATED_ADDR))
+                addrType        : fromInteger(valueOf(UNTRANSLATED_ADDR))
             };
         let stream = DataStream {
             data    : zeroExtend(pack(descriptor)),
@@ -343,7 +365,8 @@ module mkRqDescriptorGenerator#(Bool isWrite)(RqDescriptorGenerator);
         let endAddrOffset = byteModDWord(exReq.endAddr);
         let firstByteEn = convertDWordOffset2FirstByteEn(startAddrOffset);
         let lastByteEn = convertDWordOffset2LastByteEn(endAddrOffset);
-        if (exReq.length <= fromInteger(valueOf(DWORD_BYTES))) begin
+    // if startAddr and endAddr are in the same DWord
+        if ((exReq.startAddr >> valueOf(TLog#(DWORD_BYTES))) == (exReq.endAddr >> valueOf(TLog#(DWORD_BYTES)))) begin
             firstByteEn = firstByteEn & lastByteEn;
             lastByteEn = 0;
         end

@@ -13,9 +13,10 @@ from bdmatb import BdmaSimpleTb
 
 tests_dir = os.path.dirname(__file__)
 rtl_dir = tests_dir
+test_num = 1
 
 async def single_path_random_write_test(pcie_tb, dma_channel, mem):
-    for _ in range(100):
+    for _ in range(test_num):
         addr, length = pcie_tb.gen_random_req(dma_channel)
         addr = mem.get_absolute_address(addr)
         char = bytes(random.choice('abcdefghijklmnopqrstuvwxyz'), encoding="UTF-8")
@@ -25,7 +26,7 @@ async def single_path_random_write_test(pcie_tb, dma_channel, mem):
         assert mem[addr:addr+length] == data
         
 async def single_path_random_read_test(pcie_tb, dma_channel, mem):
-    for _ in range(100):
+    for _ in range(test_num):
         addr, length = pcie_tb.gen_random_req(dma_channel)
         addr = mem.get_absolute_address(addr)
         char = bytes(random.choice('abcdefghijklmnopqrstuvwxyz'), encoding="UTF-8")

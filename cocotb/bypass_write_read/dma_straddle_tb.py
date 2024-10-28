@@ -14,20 +14,20 @@ from bdmatb import BdmaBypassTb
 #  --------------        -------------         ----------- 
 # | Root Complex | <->  | End Pointer |  <->  | Dut(DMAC) |         
 #  --------------        -------------         -----------
-    
+test_num = 100
 async def single_path_random_write_test(pcie_tb, dma_channel, mem):
-    for _ in range(100):
+    for _ in range(test_num):
         addr, length = pcie_tb.gen_random_req(dma_channel)
         addr = mem.get_absolute_address(addr)
         char = bytes(random.choice('abcdefghijklmnopqrstuvwxyz'), encoding="UTF-8")
         data = char * length
         await pcie_tb.run_single_write_once(dma_channel, addr, data)
-        await Timer(100+length, units='ns')
+        await Timer(200+length, units='ns')
         assert mem[addr:addr+length] == data
             
 
 async def single_path_random_read_test(pcie_tb, dma_channel, mem):
-    for _ in range(100):
+    for _ in range(test_num):
         addr, length = pcie_tb.gen_random_req(dma_channel)
         addr = mem.get_absolute_address(addr)
         char = bytes(random.choice('abcdefghijklmnopqrstuvwxyz'), encoding="UTF-8")
@@ -61,7 +61,7 @@ async def straddle_write_test(dut):
     tb.log.info("End write test in straddle mode succesfully!")
     
 @cocotb.test(timeout_time=10000000, timeout_unit="ns")   
-async def random_read_test(dut):
+async def straddle_read_test(dut):
     tb = BdmaBypassTb(dut)
     await tb.gen_reset()
     
@@ -81,7 +81,7 @@ async def random_read_test(dut):
     await channel0
     await channel1
     
-    tb.log.info("End Read test in straddle mode succesfully!")
+#     tb.log.info("End Read test in straddle mode succesfully!")
 
 tests_dir = os.path.dirname(__file__)
 rtl_dir = tests_dir

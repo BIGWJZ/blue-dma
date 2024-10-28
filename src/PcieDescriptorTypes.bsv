@@ -34,6 +34,8 @@ typedef Bit#(DES_DWORD_COUNT_WIDTH)     DwordCount;
 typedef Bit#(DES_ADDR_WIDTH)            Address;
 typedef Bit#(DES_ADDR_TYPE_WIDTH)       AddrType;
 
+typedef 3'b001 ATTR_NO_SNOOP;
+
 // 16bytes Completer Request Descriptor Format for Memory, I/O, and Atomic Options
 typedef struct {
     // DW + 3

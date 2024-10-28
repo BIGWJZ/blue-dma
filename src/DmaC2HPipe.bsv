@@ -13,6 +13,8 @@ import PcieDescriptorTypes::*;
 import DmaUtils::*;
 import CompletionFifo::*;
 
+// `define DEBUG_READ
+
 // TODO : change the PCIe Adapter Ifc to TlpData and TlpHeader, 
 //        move the module which convert TlpHeader to IP descriptor from dma to adapter
 interface DmaC2HPipe;
@@ -115,7 +117,8 @@ module mkC2HReadCore#(DmaPathNo pathIdx)(C2HReadCore);
 
     FIFOF#(SlotToken)      tagFifo         <- mkSizedFIFOF(valueOf(TAdd#(1, STREAM_HEADER_REMOVE_LATENCY)));      
     FIFOF#(Bool)           completedFifo   <- mkSizedFIFOF(valueOf(TAdd#(1, STREAM_HEADER_REMOVE_LATENCY)));   
-    FIFOF#(DmaRequest)     reqInflightFifo <- mkSizedFIFOF(valueOf(SLOT_PER_PATH));
+    FIFOF#(DmaReadReqCnt)  inflightFifo    <- mkSizedFIFOF(valueOf(SLOT_PER_PATH));
+
 
     StreamPipe     descRemove     <- mkStreamHeaderRemove(fromInteger(valueOf(TDiv#(DES_RC_DESCRIPTOR_WIDTH, BYTE_WIDTH)))); 
     StreamPipe     dwRemove       <- mkStreamRemoveFromDW;
@@ -128,11 +131,12 @@ module mkC2HReadCore#(DmaPathNo pathIdx)(C2HReadCore);
     
     Reg#(Bool) hasReadOnceReg   <- mkReg(False);
     Reg#(Bool) isStreamValidReg <- mkReg(True);
-    Reg#(DmaReqLen) recvBytesReg  <- mkReg(0);
-    Vector#(SLOT_PER_PATH, Reg#(DmaReqLen)) chunkBytesRegs <- replicateM(mkReg(0));
+    Reg#(DmaReadReqCnt)          rcvReqCntReg  <- mkReg(1);
+    Vector#(SLOT_PER_PATH, Reg#(Bool)) chunkFlagRegs <- replicateM(mkReg(False));
 
     mkConnection(reshapeStrad.streamFifoOut, descRemove.streamFifoIn);
     mkConnection(descRemove.streamFifoOut, dwRemove.streamFifoIn);
+    mkConnection(chunkSplitor.reqCntFifoOut, inflightFifo);
 
     // Pipeline stage 1: convert StraddleStream to DataStream, may cost 2 cycle for one StraddleStream
     rule convertStraddleToDataStream;
@@ -185,7 +189,7 @@ module mkC2HReadCore#(DmaPathNo pathIdx)(C2HReadCore);
             end
         end
         isStreamValidReg <= isStreamValid;
-        // $display("parse from straddle", fshow(stream));
+        // $display("parse from straddle, tag: %d, cmpl status: %d", tag, pack(isCompleted), fshow(stream));
     endrule
 
     // Pipeline stage 2: remove the descriptor in the head of each TLP
@@ -196,23 +200,22 @@ module mkC2HReadCore#(DmaPathNo pathIdx)(C2HReadCore);
         let byteInStream = convertByteEn2BytePtr(stream.byteEn);
         let isCompleted = completedFifo.first;
         let tag = tagFifo.first;
-        let recvdChunkBytes = chunkBytesRegs[tag];
-        let chunkBytes = zeroExtend(byteInStream) + recvdChunkBytes;
+        let rcvdFlag = True;
         dwRemove.streamFifoOut.deq;
+        // $display($time, "ns SIM INFO @ mkDmaC2HReadCore%d: from dwRemove to cBuf, tag: %d, cmpl: %d", pathIdx, tag, pack(isCompleted), fshow(stream));
         if (stream.isLast) begin
             completedFifo.deq;
             tagFifo.deq;
         end
-        stream.isLast = isCompleted && stream.isLast;
-        stream.isFirst = stream.isFirst && (recvdChunkBytes == 0);
+        stream.isLast = isCompleted && stream.isLast;   //Re-define the stream boundary
+        stream.isFirst = stream.isFirst && (!chunkFlagRegs[tag]);
         cBuffer.append.enq(tuple2(tag, stream));
         if (stream.isLast) begin
             cBuffer.complete.put(tag);
-            $display($time, "ns SIM INFO @ mkDmaC2HReadCore%d: a chunk is completed in cBuffer, tag: %d, recv bytes: %d", pathIdx, tag, chunkBytes);
-            chunkBytes = 0;
+            // $display($time, "ns SIM INFO @ mkDmaC2HReadCore%d: a chunk is completed in cBuffer, tag: %d", pathIdx, tag);
+            rcvdFlag = False;
         end
-        chunkBytesRegs[tag] <= chunkBytes;
-        // $display("tag%d", tag, fshow(stream));
+        chunkFlagRegs[tag] <= rcvdFlag;
     endrule
 
     // Pipeline stage 4: there may be a bubble between the first and last DataStream of cBUffer drain output
@@ -221,30 +224,27 @@ module mkC2HReadCore#(DmaPathNo pathIdx)(C2HReadCore);
         let stream = cBuffer.drain.first;
         cBuffer.drain.deq;
         reshapeRcb.streamFifoIn.enq(stream);
-        // $display("cbuf output", fshow(stream));
+        $display("cbuf output", fshow(stream));
     endrule
 
-    // Pipeline stage 4: there may be bubbles in the first and last DataStream of a request because of MRRS chunk compute
+    // Pipeline stage 4: there may be bubbles in the first and last DataStream of a request because of MRRS split
     //  Reshape the DataStream from MRRS chunks to a whole DataStream 
     rule reshapeMRRS;
         let stream = reshapeRcb.streamFifoOut.first;
-        $display($time, "ns SIM INFO @ reshapeMRRS: get stream from reshapeRcb, isFirst %d, isLast %d, data %h", pack(stream.isFirst), pack(stream.isLast), stream.data);
-        let byteInStream = convertByteEn2BytePtr(stream.byteEn);
-        let recvBytesCnt = recvBytesReg + zeroExtend(byteInStream);
         reshapeRcb.streamFifoOut.deq;
         if (stream.isLast) begin
-            if (reqInflightFifo.first.length == recvBytesCnt) begin
-                reqInflightFifo.deq;
-                $display($time, "ns SIM INFO @ mkDmaC2HReadCore%d: a read request is done, total recvd bytes: %d", pathIdx, recvBytesCnt);
-                recvBytesCnt = 0;
+            let rcvReqCnt = rcvReqCntReg;
+            // $display("DEBUG: get isLast from reshapeRcb, fifo.first:%d, rcvReqCntReg: %d", inflightFifo.first, rcvReqCntReg);
+            if (inflightFifo.first == rcvReqCnt) begin
+                rcvReqCnt = 1;
+                inflightFifo.deq;
             end 
             else begin
+                rcvReqCnt = rcvReqCnt + 1;
                 stream.isLast = False;
-                // $display($time, "ns SIM DEBUG @ mkDmaC2HReadCore%d, expect bytes %drecv bytes %d", pathIdx, reqInflightFifo.first.length, recvBytesCnt);
             end
+            rcvReqCntReg <= rcvReqCnt;
         end
-        // recvTlpCntReg <= recvTlpCnt;
-        recvBytesReg <= recvBytesCnt;
         reshapeMrrs.streamFifoIn.enq(stream);
     endrule
 
@@ -259,7 +259,6 @@ module mkC2HReadCore#(DmaPathNo pathIdx)(C2HReadCore);
             tag       : 0
         };
         chunkSplitor.dmaRequestFifoIn.enq(exReq);
-        reqInflightFifo.enq(req);
     endrule
 
     // Pipeline stage 2: generate read descriptor
@@ -375,12 +374,12 @@ module mkC2HWriteCore#(DmaPathNo pathIdx)(C2HWriteCore);
             let chunkDataStream = chunkSplit.chunkDataFifoOut.first;
             chunkSplit.chunkDataFifoOut.deq;
             streamAlign.dataFifoIn.enq(chunkDataStream);
-            if (chunkDataStream.isLast && chunkDataStream.isFirst) begin
-                $display($time, "ns SIM INFO @ mkDmaC2HWriteCore%d: tx write chunk end  , tag:%d", pathIdx, convertSlotTokenToTag(tagReg, pathIdx));
-            end
-            else if (chunkDataStream.isLast) begin
-                $display($time, "ns SIM INFO @ mkDmaC2HWriteCore%d: tx write chunk end  , tag:%d", pathIdx, convertSlotTokenToTag(tagReg-1, pathIdx));
-            end
+            // if (chunkDataStream.isLast && chunkDataStream.isFirst) begin
+            //     $display($time, "ns SIM INFO @ mkDmaC2HWriteCore%d: tx write chunk end  , tag:%d", pathIdx, convertSlotTokenToTag(tagReg, pathIdx));
+            // end
+            // else if (chunkDataStream.isLast) begin
+            //     $display($time, "ns SIM INFO @ mkDmaC2HWriteCore%d: tx write chunk end  , tag:%d", pathIdx, convertSlotTokenToTag(tagReg-1, pathIdx));
+            // end
         end
     endrule
 
@@ -399,7 +398,7 @@ module mkC2HWriteCore#(DmaPathNo pathIdx)(C2HWriteCore);
             // $display($time, "ns SIM INFO @ mkDmaC2HWriteCore%d: tx a new tlp, BE:%b/%b", pathIdx, tpl_1(sideBandByteEn), tpl_2(sideBandByteEn));
         end
         dataOutFifo.enq(stream);
-        // $display($time, "ns SIM INFO @ mkDmaC2HWriteCore: tlp stream", fshow(stream));
+        // $display($time, "ns SIM INFO @ mkDmaC2HWriteCore%d: tlp stream", pathIdx, fshow(stream));
     endrule
 
     // User Logic Ifc
