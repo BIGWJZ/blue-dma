@@ -39,7 +39,7 @@ async def single_path_random_read_test(pcie_tb, dma_channel, mem):
         data = await pcie_tb.run_single_read_once(dma_channel, addr, length)
         assert data == char * length
             
-# @cocotb.test(timeout_time=100000000, timeout_unit="ns")
+@cocotb.test(timeout_time=100000000, timeout_unit="ns")
 async def step_random_write_test(dut):
 
     tb = BdmaBypassTb(dut)

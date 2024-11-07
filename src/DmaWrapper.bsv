@@ -5,6 +5,7 @@ import Connectable :: *;
 import DReg::*;
 import GetPut::*;
 import BRAMFIFO::*;
+import ClientServer::*;
 
 import SemiFifo::*;
 import BusConversion::*;
@@ -21,6 +22,82 @@ import SimpleModeUtils::*;
 import TestUtils::*;
 
 // For Bsv User
+interface BdmaControllerBypassWrapper;
+    // User Logic Ifc
+    interface Server#(BdmaUserC2hWrReq, BdmaUserC2hWrResp) c2hWrSrvA;
+    interface Server#(BdmaUserC2hRdReq, BdmaUserC2hRdResp) c2hRdSrvA;
+    interface Server#(BdmaUserC2hWrReq, BdmaUserC2hWrResp) c2hWrSrvB;
+    interface Server#(BdmaUserC2hRdReq, BdmaUserC2hRdResp) c2hRdSrvB;
+    // User Csr Ifc
+    interface Client#(BdmaUserH2cWrReq, BdmaUserH2cWrResp) csrWrClt;
+    interface Client#(BdmaUserH2cRdReq, BdmaUserH2cRdResp) csrRdClt;
+
+    // Raw PCIe interfaces, connected to the Xilinx PCIe IP
+    (* prefix = "" *)interface RawXilinxPcieIp       rawPcie;
+endinterface
+
+(* synthesize *)
+module mkBdmaControllerBypassWrapper(BdmaControllerBypassWrapper);
+    Wire#(Bool) linkUpWire <- mkWire;
+    Reg#(Bool) linkUpReg  <- mkReg(False);
+    Reg#(Bool) cfgFlagReg <- mkDReg(False);
+
+    BdmaC2HPipe c2hPipeA <- mkBdmaC2HPipe(0);
+    BdmaC2HPipe c2hPipeB <- mkBdmaC2HPipe(1);
+    BdmaH2CPipe h2cPipe  <- mkBdmaH2CPipe;
+
+    RequesterAxiStreamAdapter reqAdapter  <- mkRequesterAxiStreamAdapter;
+    CompleterAxiStreamAdapter cmplAdapter <- mkCompleterAxiStreamAdapter;
+
+    PcieConfigurator configurator <- mkPcieConfigurator;
+
+    mkConnection(c2hPipeA.tlpDataFifoOut, reqAdapter.dmaDataFifoIn[0]);
+    mkConnection(c2hPipeA.tlpSideBandFifoOut, reqAdapter.dmaSideBandFifoIn[0]);
+    mkConnection(reqAdapter.dmaDataFifoOut[0], c2hPipeA.tlpDataFifoIn);
+
+    mkConnection(c2hPipeB.tlpDataFifoOut, reqAdapter.dmaDataFifoIn[1]);
+    mkConnection(c2hPipeB.tlpSideBandFifoOut, reqAdapter.dmaSideBandFifoIn[1]);
+    mkConnection(reqAdapter.dmaDataFifoOut[1], c2hPipeB.tlpDataFifoIn);
+
+    mkConnection(cmplAdapter.dmaDataFifoOut, h2cPipe.tlpDataFifoIn);
+    mkConnection(h2cPipe.tlpDataFifoOut, cmplAdapter.dmaDataFifoIn);
+
+    rule detectLink if (linkUpWire && !linkUpReg);
+        configurator.initCfg;
+        cfgFlagReg <= True;
+        linkUpReg <= True;
+        $display($time, "ns SIM INFO @ BLUE-DMAC: PCIe link is up!");
+    endrule
+
+    rule setCfg if (cfgFlagReg);
+        let tlpSizeCfg <- configurator.tlpSizeCfg.get;
+        c2hPipeA.tlpSizeCfg.put(tlpSizeCfg);
+        c2hPipeB.tlpSizeCfg.put(tlpSizeCfg);
+        $display($time, "ns SIM INFO @ BLUE-DMAC: Get PCIe configurations, mps:%d, mrrs:%d", tlpSizeCfg.mps, tlpSizeCfg.mrrs);
+    endrule
+
+    // User Logic Ifc
+    interface c2hWrSrvA = c2hPipeA.writeSrv;
+    interface c2hRdSrvA = c2hPipeA.readSrv;
+    interface c2hWrSrvB = c2hPipeB.writeSrv;
+    interface c2hRdSrvB = c2hPipeB.readSrv;
+    interface csrWrClt  = h2cPipe.writeClt;
+    interface csrRdClt  = h2cPipe.readClt;
+
+    // Raw PCIe Ifc
+    interface RawXilinxPcieIp rawPcie;
+        interface requesterRequest  = reqAdapter.rawRequesterRequest;
+        interface requesterComplete = reqAdapter.rawRequesterComplete;
+        interface completerRequest  = cmplAdapter.rawCompleterRequest;
+        interface completerComplete = cmplAdapter.rawCompleterComplete;
+        interface configuration     = configurator.rawConfiguration;
+        method Action linkUp(Bool isLinkUp);
+            linkUpWire <= isLinkUp;
+        endmethod
+    endinterface
+endmodule
+
+
 // Native Blue-DMA Interface, the addrs in the req should be pa
 interface DmaController;
     // User Logic Ifc
@@ -69,6 +146,9 @@ module mkDmaController(DmaController);
         mkConnection(c2hPipes[pathIdx].tlpDataFifoOut, reqAdapter.dmaDataFifoIn[pathIdx]);
         mkConnection(c2hPipes[pathIdx].tlpSideBandFifoOut, reqAdapter.dmaSideBandFifoIn[pathIdx]);
         mkConnection(reqAdapter.dmaDataFifoOut[pathIdx], c2hPipes[pathIdx].tlpDataFifoIn);
+        rule doneFlag; //TODO: let verilog interface has done signal
+            c2hPipes[pathIdx].doneFifoOut.deq;
+        endrule
     end
 
     mkConnection(cmplAdapter.dmaDataFifoOut, h2cPipe.tlpDataFifoIn);

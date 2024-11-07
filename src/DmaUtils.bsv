@@ -135,9 +135,9 @@ module mkChunkComputer (TRXDirection direction, ChunkCompute ifc);
         
     endrule
 
-    interface  dmaRequestFifoIn = convertFifoToFifoIn(inputFifo);
+    interface  dmaRequestFifoIn    = convertFifoToFifoIn(inputFifo);
     interface  chunkRequestFifoOut = convertFifoToFifoOut(outputFifo);
-    interface reqCntFifoOut    = convertFifoToFifoOut(rdReqCntFifo);
+    interface  reqCntFifoOut       = convertFifoToFifoOut(rdReqCntFifo);
 
     interface Put maxReadReqSize;
         method Action put (Tuple2#(TlpPayloadSize, TlpPayloadSizeWidth) mrrsCfg);
@@ -156,6 +156,7 @@ endmodule
 interface ChunkSplit;
     interface FifoIn#(DataStream)       dataFifoIn;
     interface FifoIn#(DmaExtendRequest) reqFifoIn;
+    interface FifoOut#(Bool)            doneFifoOut;
     interface FifoOut#(DataStream)      chunkDataFifoOut;
     interface FifoOut#(DmaRequest)      chunkReqFifoOut;
     interface Put#(Tuple2#(TlpPayloadSize, TlpPayloadSizeWidth)) maxPayloadSize;
@@ -165,6 +166,7 @@ module mkChunkSplit(TRXDirection direction, ChunkSplit ifc);
     FIFOF#(DataStream)  dataInFifo       <- mkFIFOF;
     FIFOF#(DataStream)  chunkOutFifo     <- mkFIFOF;
     FIFOF#(DmaRequest)  reqOutFifo       <- mkFIFOF;
+    FIFOF#(Bool)        doneFifo         <- mkFIFOF;
     FIFOF#(DmaRequest)  firstReqPipeFifo <- mkSizedFIFOF(valueOf(STREAM_SPLIT_LATENCY));
 
     FIFOF#(DmaExtendRequest) reqInFifo        <- mkFIFOF;
@@ -268,6 +270,7 @@ module mkChunkSplit(TRXDirection direction, ChunkSplit ifc);
                 if (chunkReq.length == oriReq.length) begin
                     nextStartAddr = 0;
                     remainLen     = 0;
+                    doneFifo.enq(True);
                 end
                 else begin
                     nextStartAddr = oriReq.startAddr + zeroExtend(chunkReq.length);
@@ -290,6 +293,7 @@ module mkChunkSplit(TRXDirection direction, ChunkSplit ifc);
                     reqOutFifo.enq(chunkReq);
                     nextStartAddr = 0;
                     remainLen     = 0;
+                    doneFifo.enq(True);
                 end
                 else begin
                     nextStartAddr = nextStartAddr + zeroExtend(tlpMaxSizeReg);
@@ -305,8 +309,9 @@ module mkChunkSplit(TRXDirection direction, ChunkSplit ifc);
         chunkOutFifo.enq(stream);
     endrule
 
-    interface dataFifoIn = convertFifoToFifoIn(dataInFifo);
-    interface reqFifoIn  = convertFifoToFifoIn(reqInFifo);
+    interface dataFifoIn  = convertFifoToFifoIn(dataInFifo);
+    interface reqFifoIn   = convertFifoToFifoIn(reqInFifo);
+    interface doneFifoOut = convertFifoToFifoOut(doneFifo);
 
     interface chunkDataFifoOut = convertFifoToFifoOut(chunkOutFifo);
     interface chunkReqFifoOut  = convertFifoToFifoOut(reqOutFifo);

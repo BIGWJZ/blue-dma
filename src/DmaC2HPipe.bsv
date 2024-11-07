@@ -2,6 +2,7 @@ import FIFOF::*;
 import GetPut::*;
 import Vector::*;
 import Connectable::*;
+import ClientServer::*;
 
 import SemiFifo::*;
 import PrimUtils::*;
@@ -13,7 +14,88 @@ import PcieDescriptorTypes::*;
 import DmaUtils::*;
 import CompletionFifo::*;
 
-// `define DEBUG_READ
+// Wrapper between original dma pipe and blue-rdma style interface
+interface BdmaC2HPipe;
+    // User Logic Ifc
+    interface Server#(BdmaUserC2hWrReq, BdmaUserC2hWrResp) writeSrv;
+    interface Server#(BdmaUserC2hRdReq, BdmaUserC2hRdResp) readSrv;
+
+    // Pcie Adapter Ifc
+    interface FifoOut#(DataStream)     tlpDataFifoOut;
+    interface FifoOut#(SideBandByteEn) tlpSideBandFifoOut;
+    interface FifoIn#(StraddleStream)  tlpDataFifoIn;
+    // TODO: CSR Ifc
+    interface Put#(TlpSizeCfg)   tlpSizeCfg;
+    // interface Client#(DmaCsrValue, DmaCsrValue) statusReg;
+endinterface
+
+module mkBdmaC2HPipe#(DmaPathNo pathIdx)(BdmaC2HPipe);
+    C2HReadCore  readCore  <- mkC2HReadCore(pathIdx);
+    C2HWriteCore writeCore <- mkC2HWriteCore(pathIdx);
+
+    Reg#(Bool) isInitDoneReg <- mkReg(False);
+
+    FIFOF#(BdmaUserC2hWrReq)  wrReqInFifo   <- mkFIFOF;
+    FIFOF#(BdmaUserC2hWrResp) wrRespOutFifo <- mkFIFOF;
+    FIFOF#(BdmaUserC2hRdReq)  rdReqInFifo   <- mkFIFOF;
+    FIFOF#(BdmaUserC2hRdResp) rdRespOutFifo <- mkFIFOF;
+
+    FIFOF#(DataStream)     tlpOutFifo      <- mkFIFOF;
+    FIFOF#(SideBandByteEn) tlpSideBandFifo <- mkFIFOF;
+
+    rule forwardWrReq;
+        let req = wrReqInFifo.first;
+        wrReqInFifo.deq;
+        writeCore.dataFifoIn.enq(req.dataStream);
+        writeCore.wrReqFifoIn.enq(DmaRequest {
+            startAddr: req.addr,
+            length   : req.len,
+            isWrite  : True
+        });
+    endrule
+
+    rule forwardWrResp;
+        let rv = writeCore.doneFifoOut.first;
+        writeCore.doneFifoOut.deq;
+        wrRespOutFifo.enq(BdmaUserC2hWrResp{ });
+    endrule
+
+    rule forwardRdReq;
+        let req = rdReqInFifo.first;
+        rdReqInFifo.deq;
+        readCore.rdReqFifoIn.enq(DmaRequest {
+            startAddr: req.addr,
+            length   : req.len,
+            isWrite  : False
+        });
+    endrule
+
+    rule forwardRdResp;
+        let stream = readCore.dataFifoOut.first;
+        readCore.dataFifoOut.deq;
+        rdRespOutFifo.enq(BdmaUserC2hRdResp{
+            dataStream: stream
+        });
+    endrule
+
+    // User Ifc
+    interface readSrv  = toGPServer(rdReqInFifo, rdRespOutFifo);
+    interface writeSrv = toGPServer(wrReqInFifo, wrRespOutFifo);
+    
+    // Pcie Adapter Ifc
+    interface tlpDataFifoOut      = convertFifoToFifoOut(tlpOutFifo);
+    interface tlpSideBandFifoOut  = convertFifoToFifoOut(tlpSideBandFifo);
+    interface tlpDataFifoIn       = readCore.tlpFifoIn;
+    // TODO: CSR Ifc
+    interface Put tlpSizeCfg;
+        method Action put(sizeCfg);
+            writeCore.maxPayloadSize.put(tuple2(sizeCfg.mps, sizeCfg.mpsWidth));
+            readCore.maxReadReqSize.put(tuple2(sizeCfg.mrrs, sizeCfg.mrrsWidth));
+            isInitDoneReg <= True;
+        endmethod
+    endinterface
+
+endmodule
 
 // TODO : change the PCIe Adapter Ifc to TlpData and TlpHeader, 
 //        move the module which convert TlpHeader to IP descriptor from dma to adapter
@@ -22,6 +104,7 @@ interface DmaC2HPipe;
     interface FifoIn#(DataStream)  wrDataFifoIn;
     interface FifoIn#(DmaRequest)  reqFifoIn;
     interface FifoOut#(DataStream) rdDataFifoOut;
+    interface FifoOut#(Bool)       doneFifoOut;
     // Pcie Adapter Ifc
     interface FifoOut#(DataStream)     tlpDataFifoOut;
     interface FifoOut#(SideBandByteEn) tlpSideBandFifoOut;
@@ -81,6 +164,7 @@ module mkDmaC2HPipe#(DmaPathNo pathIdx)(DmaC2HPipe);
     interface wrDataFifoIn  = convertFifoToFifoIn(dataInFifo);
     interface reqFifoIn     = convertFifoToFifoIn(reqInFifo);
     interface rdDataFifoOut = readCore.dataFifoOut;
+    interface doneFifoOut   = writeCore.doneFifoOut;
     // Pcie Adapter Ifc
     interface tlpDataFifoOut      = convertFifoToFifoOut(tlpOutFifo);
     interface tlpSideBandFifoOut  = convertFifoToFifoOut(tlpSideBandFifo);
@@ -310,6 +394,7 @@ interface C2HWriteCore;
     // User Logic Ifc
     interface FifoIn#(DataStream)      dataFifoIn;
     interface FifoIn#(DmaRequest)      wrReqFifoIn;
+    interface FifoOut#(Bool)           doneFifoOut;
     // PCIe IP Ifc
     interface FifoOut#(DataStream)     tlpFifoOut;
     interface FifoOut#(SideBandByteEn) tlpSideBandFifoOut;
@@ -404,6 +489,7 @@ module mkC2HWriteCore#(DmaPathNo pathIdx)(C2HWriteCore);
     // User Logic Ifc
     interface dataFifoIn         = convertFifoToFifoIn(dataInFifo);
     interface wrReqFifoIn        = convertFifoToFifoIn(wrReqInFifo);
+    interface doneFifoOut        = chunkSplit.doneFifoOut;
     // PCIe Adapter Ifc
     interface tlpFifoOut         = convertFifoToFifoOut(dataOutFifo);
     interface tlpSideBandFifoOut = convertFifoToFifoOut(byteEnOutFifo);

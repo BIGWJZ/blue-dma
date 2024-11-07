@@ -120,6 +120,42 @@ instance FShow#(DataStream);
     endfunction
 endinstance
 
+// Bdma User 
+
+typedef struct {
+    DmaMemAddr addr;
+    DmaReqLen  len;
+} BdmaUserC2hRdReq deriving(Bits, FShow);
+
+typedef struct {
+    DataStream dataStream;
+} BdmaUserC2hRdResp deriving(Bits, FShow);
+
+typedef struct {
+    DmaMemAddr addr;
+    DmaReqLen  len;
+    DataStream dataStream;
+} BdmaUserC2hWrReq deriving(Bits, FShow);
+
+typedef struct {
+} BdmaUserC2hWrResp deriving(Bits, FShow);
+
+typedef struct {
+    DmaCsrAddr addr;
+    DmaCsrValue data;
+} BdmaUserH2cWrReq deriving(Bits, FShow);
+
+typedef struct {
+} BdmaUserH2cWrResp deriving(Bits, FShow);
+
+typedef struct {
+    DmaCsrAddr addr;
+} BdmaUserH2cRdReq deriving(Bits, FShow);
+
+typedef struct {
+    DmaCsrValue data;
+} BdmaUserH2cRdResp deriving(Bits, FShow);
+
 // Straddle Parameters
 
 typedef TDiv#(DATA_WIDTH, PCIE_STRADDLE_NUM) STRADDLE_THRESH_BIT_WIDTH;

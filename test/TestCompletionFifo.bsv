@@ -58,7 +58,7 @@ module mkCompletionFifoTb(Empty);
     rule getResponse if (initReg);
         outPtrReg <= outPtrReg == fromInteger(valueOf(TEST_SLOT_NUM)-1) ? 0 : outPtrReg + 1;
         if (!doneFlags[outPtrReg]) begin
-            if (reqDones[outPtrReg] <= reqs[outPtrReg]) begin
+            if (reqDones[outPtrReg] < reqs[outPtrReg]) begin
                 reqDones[outPtrReg] <= reqDones[outPtrReg] + 1;
                 dut.append.enq(tuple2(outPtrReg, zeroExtend(outPtrReg) << valueOf(TLog#(TEST_SLOT_NUM)) | zeroExtend(reqDones[outPtrReg])));
             end

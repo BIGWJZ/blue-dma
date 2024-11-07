@@ -1,6 +1,7 @@
 import FIFOF::*;
 import Vector::*;
 import RegFile::*;
+import ClientServer::*;
 
 import SemiFifo::*;
 import PrimUtils::*;
@@ -15,6 +16,60 @@ typedef 1 IDEA_CC_CSR_DWORD_CNT;
 typedef 4 IDEA_CC_CSR_BYTE_CNT;
 typedef 4 IDEA_FIRST_BE_HIGH_VALID_PTR_OF_CSR;
 
+// Wrapper between original dma pipe and blue-rdma style interface
+interface BdmaH2CPipe;
+    // User Ifc
+    interface Client#(BdmaUserH2cWrReq, BdmaUserH2cWrResp) writeClt;
+    interface Client#(BdmaUserH2cRdReq, BdmaUserH2cRdResp) readClt;
+
+    // Pcie Adapter Ifc
+    interface FifoIn#(DataStream)  tlpDataFifoIn;
+    interface FifoOut#(DataStream) tlpDataFifoOut;
+endinterface
+
+module mkBdmaH2CPipe(BdmaH2CPipe);
+    DmaH2CPipe pipe <- mkDmaH2CPipe;
+    FIFOF#(BdmaUserH2cWrReq)  wrReqQ  <- mkFIFOF;
+    FIFOF#(BdmaUserH2cWrResp) wrRespQ <- mkFIFOF;
+    FIFOF#(BdmaUserH2cRdReq)  rdReqQ  <- mkFIFOF;
+    FIFOF#(BdmaUserH2cRdResp) rdRespQ <- mkFIFOF;
+
+    rule forwardReq;
+        let h2cReq = pipe.userReqFifoOut.first;
+        pipe.userReqFifoOut.deq;
+        if (h2cReq.isWrite) begin
+            wrReqQ.enq(BdmaUserH2cWrReq {
+                addr: h2cReq.addr,
+                data: h2cReq.value
+            });
+        end
+        else begin
+            rdReqQ.enq(BdmaUserH2cRdReq {
+                addr: h2cReq.addr
+            });
+        end
+    endrule
+
+    rule handleWrResp;
+        wrRespQ.deq;
+    endrule
+
+    rule handleRdResp;
+        let value = rdRespQ.first.data;
+        rdRespQ.deq;
+        pipe.userRespFifoIn.enq(CsrResponse{
+            addr : 0,
+            value: value
+        });
+    endrule
+
+    interface writeClt = toGPClient(wrReqQ, wrRespQ);
+    interface readClt  = toGPClient(rdReqQ, rdRespQ);
+    interface tlpDataFifoIn  = pipe.tlpDataFifoIn;
+    interface tlpDataFifoOut = pipe.tlpDataFifoOut;
+endmodule
+
+
 function CsrResponse getEmptyCsrResponse();
     return CsrResponse {
         addr  : 0,
@@ -28,7 +83,7 @@ interface DmaH2CPipe;
     interface FifoIn#(CsrResponse)  csrRespFifoIn;
     // User Ifc
     interface FifoOut#(CsrRequest)  userReqFifoOut;
-    interface FifoIn#(CsrResponse) userRespFifoIn;
+    interface FifoIn#(CsrResponse)  userRespFifoIn;
     // Pcie Adapter Ifc
     interface FifoIn#(DataStream)  tlpDataFifoIn;
     interface FifoOut#(DataStream) tlpDataFifoOut;
@@ -136,9 +191,11 @@ module mkDmaH2CPipe(DmaH2CPipe);
         let addr = resp.addr;
         let value = resp.value;
         let {req, cqDescriptor} = pendingFifo.first;
+        `ifdef H2C_DEBUG
         if (addr == req.addr) begin
-            pendingFifo.deq;
             $display($time, "ns SIM INFO @ mkDmaH2CPipe: Valid rdResp with Addr %h, data %h", addr, value);
+        `endif
+            pendingFifo.deq;
             let ccDescriptor = PcieCompleterCompleteDescriptor {
                 reserve0        : 0,
                 attributes      : cqDescriptor.attributes,
@@ -157,7 +214,7 @@ module mkDmaH2CPipe(DmaH2CPipe);
                 reserve3        : 0,
                 addrType        : cqDescriptor.addrType,
                 reserve4        : 0,
-                lowerAddr       : truncate(addr << valueOf(TLog#(DWORD_BYTES)))  // Suppose all cq/cc requests are 32 bit aligned
+                lowerAddr       : truncate(req.addr << valueOf(TLog#(DWORD_BYTES)))  // Suppose all cq/cc requests are 32 bit aligned
             };
             Data data = zeroExtend(pack(ccDescriptor));
             data = data | (zeroExtend(value) << valueOf(DES_CC_DESCRIPTOR_WIDTH));
@@ -168,11 +225,13 @@ module mkDmaH2CPipe(DmaH2CPipe);
                 isLast  : True
             };
             tlpOutFifo.enq(stream);
-            // $display($time, "ns SIM INFO @ mkDmaH2CPipe: output a cmpl tlp", fshow(stream));
+        `ifdef H2C_DEBUG
+            $display($time, "ns SIM INFO @ mkDmaH2CPipe: output a cmpl tlp", fshow(stream));
         end
         else begin
             $display($time, "ns SIM ERROR @ mkDmaH2CPipe: InValid rdResp with Addr %h, data %h and Expect Addr %h", addr, value, req.addr);
         end
+        `endif
     endrule
 
     // DMA Csr Ifc
