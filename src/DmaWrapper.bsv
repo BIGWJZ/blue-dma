@@ -22,29 +22,32 @@ import SimpleModeUtils::*;
 import TestUtils::*;
 
 // For Bsv User
-interface BdmaControllerBypassWrapper;
+interface BdmaControllerBypassWrapper#(numeric type sz_csr_addr, numeric type sz_csr_data);
     // User Logic Ifc
     interface Server#(BdmaUserC2hWrReq, BdmaUserC2hWrResp) c2hWrSrvA;
     interface Server#(BdmaUserC2hRdReq, BdmaUserC2hRdResp) c2hRdSrvA;
     interface Server#(BdmaUserC2hWrReq, BdmaUserC2hWrResp) c2hWrSrvB;
     interface Server#(BdmaUserC2hRdReq, BdmaUserC2hRdResp) c2hRdSrvB;
     // User Csr Ifc
-    interface Client#(BdmaUserH2cWrReq, BdmaUserH2cWrResp) csrWrClt;
-    interface Client#(BdmaUserH2cRdReq, BdmaUserH2cRdResp) csrRdClt;
+    interface Client#(BdmaUserH2cWrReq#(sz_csr_addr, sz_csr_data), BdmaUserH2cWrResp)  csrWrClt;
+    interface Client#(BdmaUserH2cRdReq#(sz_csr_addr), BdmaUserH2cRdResp#(sz_csr_data)) csrRdClt;
 
     // Raw PCIe interfaces, connected to the Xilinx PCIe IP
     (* prefix = "" *)interface RawXilinxPcieIp       rawPcie;
 endinterface
 
-(* synthesize *)
-module mkBdmaControllerBypassWrapper(BdmaControllerBypassWrapper);
+module mkBdmaControllerBypassWrapper(BdmaControllerBypassWrapper#(sz_csr_addr, sz_csr_data))
+    provisos(
+        Add#(_a, sz_csr_addr, DMA_CSR_ADDR_WIDTH), 
+        Add#(_b, sz_csr_data, DMA_CSR_DATA_WIDTH)
+    );
     Wire#(Bool) linkUpWire <- mkWire;
     Reg#(Bool) linkUpReg  <- mkReg(False);
     Reg#(Bool) cfgFlagReg <- mkDReg(False);
 
     BdmaC2HPipe c2hPipeA <- mkBdmaC2HPipe(0);
     BdmaC2HPipe c2hPipeB <- mkBdmaC2HPipe(1);
-    BdmaH2CPipe h2cPipe  <- mkBdmaH2CPipe;
+    BdmaH2CPipe#(sz_csr_addr, sz_csr_data) h2cPipe  <- mkBdmaH2CPipe;
 
     RequesterAxiStreamAdapter reqAdapter  <- mkRequesterAxiStreamAdapter;
     CompleterAxiStreamAdapter cmplAdapter <- mkCompleterAxiStreamAdapter;

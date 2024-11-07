@@ -141,20 +141,20 @@ typedef struct {
 } BdmaUserC2hWrResp deriving(Bits, FShow);
 
 typedef struct {
-    DmaCsrAddr addr;
-    DmaCsrValue data;
-} BdmaUserH2cWrReq deriving(Bits, FShow);
+    Bit#(sz_csr_addr) addr;
+    Bit#(sz_csr_data) data;
+} BdmaUserH2cWrReq#(numeric type sz_csr_addr, numeric type sz_csr_data) deriving(Bits, FShow);
 
 typedef struct {
 } BdmaUserH2cWrResp deriving(Bits, FShow);
 
 typedef struct {
-    DmaCsrAddr addr;
-} BdmaUserH2cRdReq deriving(Bits, FShow);
+    Bit#(sz_csr_addr) addr;
+} BdmaUserH2cRdReq#(numeric type sz_csr_addr) deriving(Bits, FShow);
 
 typedef struct {
-    DmaCsrValue data;
-} BdmaUserH2cRdResp deriving(Bits, FShow);
+    Bit#(sz_csr_data) data;
+} BdmaUserH2cRdResp#(numeric type sz_csr_data) deriving(Bits, FShow);
 
 // Straddle Parameters
 
