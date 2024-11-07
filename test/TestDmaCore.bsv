@@ -6,7 +6,7 @@ import Connectable::*;
 import SemiFifo::*;
 import PcieAxiStreamTypes::*;
 import DmaTypes::*;
-import PrimUtils::*;
+import BdmaPrimUtils::*;
 import PcieTypes::*;
 import PcieDescriptorTypes::*;
 import StreamUtils::*;

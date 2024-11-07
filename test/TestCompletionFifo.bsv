@@ -7,7 +7,7 @@ import Vector::*;
 
 import SemiFifo::*;
 import CompletionFifo::*;
-import PrimUtils::*;
+import BdmaPrimUtils::*;
 import PcieAxiStreamTypes::*;
 import DmaTypes::*;
 

@@ -4,7 +4,7 @@ import RegFile::*;
 import ClientServer::*;
 
 import SemiFifo::*;
-import PrimUtils::*;
+import BdmaPrimUtils::*;
 import PcieAxiStreamTypes::*;
 import PcieTypes::*;
 import PcieDescriptorTypes::*;

@@ -4,7 +4,7 @@ import GetPut::*;
 import Connectable::*;
 import SemiFifo::*;
 
-import PrimUtils::*;
+import BdmaPrimUtils::*;
 import DmaTypes::*;
 import PcieAxiStreamTypes::*;
 

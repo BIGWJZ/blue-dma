@@ -5,7 +5,7 @@ import Connectable::*;
 import ClientServer::*;
 
 import SemiFifo::*;
-import PrimUtils::*;
+import BdmaPrimUtils::*;
 import StreamUtils::*;
 import PcieTypes::*;
 import DmaTypes::*;

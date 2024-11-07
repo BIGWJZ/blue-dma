@@ -4,7 +4,7 @@ import Vector::*;
 import FShow::*;
 
 import SemiFifo::*;
-import PrimUtils::*;
+import BdmaPrimUtils::*;
 import PcieAxiStreamTypes::*;
 import PcieTypes::*;
 import PcieDescriptorTypes::*;

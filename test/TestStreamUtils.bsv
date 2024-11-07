@@ -3,7 +3,7 @@ import SemiFifo::*;
 import LFSR::*;
 import Vector::*;
 
-import PrimUtils::*;
+import BdmaPrimUtils::*;
 import DmaTypes::*;
 import StreamUtils::*;
 
