@@ -63,6 +63,7 @@ module mkBdmaH2CPipe(BdmaH2CPipe#(sz_csr_addr, sz_csr_data))
     rule handleRdResp;
         let value = rdRespQ.first.data;
         rdRespQ.deq;
+        $display("Get Blue-Rdma Register, value:%d\n", value);
         pipe.userRespFifoIn.enq(CsrResponse{
             addr : 0,
             value: zeroExtend(value)
@@ -123,11 +124,10 @@ module mkDmaH2CPipe(DmaH2CPipe);
 
     DataBytePtr csrCmplBytes = fromInteger(valueOf(TDiv#(TAdd#(DES_CC_DESCRIPTOR_WIDTH ,DMA_CSR_DATA_WIDTH), BYTE_WIDTH)));
 
-    // This function returns DW addr pointing to inner registers, where byteAddr = DWordAddr << 2
-    // The registers in the hw are all of 32bit DW type
-    function DmaCsrAddr getCsrAddrFromCqDescriptor(PcieCompleterRequestDescriptor descriptor);
-        // Only care about low bits, because the offset is allocated. 
-        let addr = getAddrLowBits(zeroExtend(descriptor.address), descriptor.barAperture);
+    // The return address of this function is aligned to BYTE
+    function DmaCsrAddr getBarAddrFromCqDescriptor(PcieCompleterRequestDescriptor descriptor);
+        // Only care about low bits, because the offset is pre-assigned and not important. 
+        let addr = getAddrLowBits(zeroExtend(descriptor.address) << valueOf(TLog#(DWORD_BYTES)), descriptor.barAperture);
         return truncate(addr);
     endfunction
 
@@ -137,50 +137,49 @@ module mkDmaH2CPipe(DmaH2CPipe);
         isInPacket <= !stream.isLast;
         if (!isInPacket) begin
             let descriptor  = getDescriptorFromFirstBeat(stream);
-            case (descriptor.reqType) 
-                fromInteger(valueOf(MEM_WRITE_REQ)): begin
-                    // $display($time, "ns SIM INFO @ mkDmaH2CPipe: MemWrite Detect!");
-                    let firstData = getDataFromFirstBeat(stream);
-                    DmaCsrValue wrValue = truncate(firstData);
-                    let wrAddr = getCsrAddrFromCqDescriptor(descriptor);
-                    if (descriptor.dwordCnt == fromInteger(valueOf(IDEA_CQ_CSR_DWORD_CNT))) begin
-                        // $display($time, "ns SIM INFO @ mkDmaH2CPipe: Valid wrReq with Addr %d, data %h", wrAddr, wrValue);
+            if (descriptor.dwordCnt == fromInteger(valueOf(IDEA_CQ_CSR_DWORD_CNT))) begin
+                case (descriptor.reqType) 
+                    fromInteger(valueOf(MEM_WRITE_REQ)): begin
+                        let firstData = getDataFromFirstBeat(stream);
+                        DmaCsrValue wrValue = truncate(firstData);
+                        let wrAddr = getBarAddrFromCqDescriptor(descriptor);
                         let req = CsrRequest {
                             addr      : wrAddr,
                             value     : wrValue,
                             isWrite   : True
                         };
                         if (descriptor.barId == 0) begin
+                            req.addr = req.addr >> valueOf(TLog#(DWORD_BYTES));
                             reqOutFifo.enq(req);
                         end
                         else if (descriptor.barId == 1) begin
                             userOutFifo.enq(req);
                         end
                     end
-                    else begin
-                        $display($time, "ns SIM INFO @ mkDmaH2CPipe: Invalid wrReq with Addr %d, data %h", wrAddr, wrValue);
-                        illegalPcieReqCntReg <= illegalPcieReqCntReg + 1;
+                    fromInteger(valueOf(MEM_READ_REQ)): begin
+                        let rdAddr = getBarAddrFromCqDescriptor(descriptor);
+                        let req = CsrRequest{
+                            addr      : rdAddr,
+                            value     : 0,
+                            isWrite   : False
+                        };
+                        if (descriptor.barId == 0) begin
+                            req.addr = req.addr >> valueOf(TLog#(DWORD_BYTES));
+                            reqOutFifo.enq(req);
+                        end
+                        else if (descriptor.barId == 1) begin
+                            userOutFifo.enq(req);
+                            $display($time, "ns SIM INFO @ mkDmaH2CPipe: Valid User Bar rdReq, addr %h", getBarAddrFromCqDescriptor(descriptor));
+                        end
+                        pendingFifo.enq(tuple2(req, descriptor));
                     end
-                end
-                fromInteger(valueOf(MEM_READ_REQ)): begin
-                    // $display($time, "ns SIM INFO @ mkDmaH2CPipe: MemRead Detect!");
-                    let rdAddr = getCsrAddrFromCqDescriptor(descriptor);
-                    let req = CsrRequest{
-                        addr      : rdAddr,
-                        value     : 0,
-                        isWrite   : False
-                    };
-                    $display($time, "ns SIM INFO @ mkDmaH2CPipe: Valid rdReq with Addr %h", rdAddr << valueOf(TLog#(DWORD_BYTES)));
-                    if (descriptor.barId == 0) begin
-                        reqOutFifo.enq(req);
-                    end
-                    else if (descriptor.barId == 1) begin
-                        userOutFifo.enq(req);
-                    end
-                    pendingFifo.enq(tuple2(req, descriptor));
-                end
-                default: illegalPcieReqCntReg <= illegalPcieReqCntReg + 1;
-            endcase
+                    default: illegalPcieReqCntReg <= illegalPcieReqCntReg + 1;
+                endcase
+            end
+            else begin
+                $display($time, "ns SIM INFO @ mkDmaH2CPipe: Invalid req with Addr %d, dwCnt %d", getBarAddrFromCqDescriptor(descriptor), descriptor.dwordCnt);
+                illegalPcieReqCntReg <= illegalPcieReqCntReg + 1;
+            end
         end
     endrule
 
@@ -188,56 +187,54 @@ module mkDmaH2CPipe(DmaH2CPipe);
         CsrResponse resp = getEmptyCsrResponse;
         if (respInFifo.notEmpty) begin
             resp = respInFifo.first;
+            resp.addr = resp.addr << valueOf(TLog#(DWORD_BYTES));
             respInFifo.deq;
         end
-        else if (userInFifo.notEmpty) begin
+        else begin
             resp = userInFifo.first;
             userInFifo.deq;
         end
         let addr = resp.addr;
         let value = resp.value;
         let {req, cqDescriptor} = pendingFifo.first;
-        `ifdef H2C_DEBUG
-        if (addr == req.addr) begin
-            $display($time, "ns SIM INFO @ mkDmaH2CPipe: Valid rdResp with Addr %h, data %h", addr, value);
-        `endif
-            pendingFifo.deq;
-            let ccDescriptor = PcieCompleterCompleteDescriptor {
-                reserve0        : 0,
-                attributes      : cqDescriptor.attributes,
-                trafficClass    : cqDescriptor.trafficClass,
-                completerIdEn   : False,
-                completerId     : 0,
-                tag             : cqDescriptor.tag,
-                requesterId     : cqDescriptor.requesterId,
-                reserve1        : 0,
-                isPoisoned      : False,
-                status          : fromInteger(valueOf(DES_CC_STAUS_SUCCESS)),
-                dwordCnt        : fromInteger(valueOf(IDEA_CC_CSR_DWORD_CNT)),
-                reserve2        : 0,
-                isLockedReadCmpl: False,
-                byteCnt         : fromInteger(valueOf(IDEA_CC_CSR_BYTE_CNT)),
-                reserve3        : 0,
-                addrType        : cqDescriptor.addrType,
-                reserve4        : 0,
-                lowerAddr       : truncate(req.addr << valueOf(TLog#(DWORD_BYTES)))  // Suppose all cq/cc requests are 32 bit aligned
-            };
-            Data data = zeroExtend(pack(ccDescriptor));
-            data = data | (zeroExtend(value) << valueOf(DES_CC_DESCRIPTOR_WIDTH));
-            let stream = DataStream {
-                data    : data,
-                byteEn  : convertBytePtr2ByteEn(csrCmplBytes),
-                isFirst : True,
-                isLast  : True
-            };
-            tlpOutFifo.enq(stream);
-        `ifdef H2C_DEBUG
-            $display($time, "ns SIM INFO @ mkDmaH2CPipe: output a cmpl tlp", fshow(stream));
-        end
-        else begin
-            $display($time, "ns SIM ERROR @ mkDmaH2CPipe: InValid rdResp with Addr %h, data %h and Expect Addr %h", addr, value, req.addr);
-        end
-        `endif
+
+        // if (addr == req.addr || addr == 0) begin
+        //     $display($time, "ns SIM INFO @ mkDmaH2CPipe: Valid rdResp with Addr %d, value %d", req.addr, value);
+        // end
+        // else begin
+        //     $display($time, "ns SIM ERROR @ mkDmaH2CPipe: InValid rdResp with Addr %d, value %d and Expect Addr %d", addr, value, req.addr);
+        // end
+
+        pendingFifo.deq;
+        let ccDescriptor = PcieCompleterCompleteDescriptor {
+            reserve0        : 0,
+            attributes      : cqDescriptor.attributes,
+            trafficClass    : cqDescriptor.trafficClass,
+            completerIdEn   : False,
+            completerId     : 0,
+            tag             : cqDescriptor.tag,
+            requesterId     : cqDescriptor.requesterId,
+            reserve1        : 0,
+            isPoisoned      : False,
+            status          : fromInteger(valueOf(DES_CC_STAUS_SUCCESS)),
+            dwordCnt        : fromInteger(valueOf(IDEA_CC_CSR_DWORD_CNT)),
+            reserve2        : 0,
+            isLockedReadCmpl: False,
+            byteCnt         : fromInteger(valueOf(IDEA_CC_CSR_BYTE_CNT)),
+            reserve3        : 0,
+            addrType        : cqDescriptor.addrType,
+            reserve4        : 0,
+            lowerAddr       : truncate(req.addr)  
+        };
+        Data data = zeroExtend(pack(ccDescriptor));
+        data = data | (zeroExtend(value) << valueOf(DES_CC_DESCRIPTOR_WIDTH));
+        let stream = DataStream {
+            data    : data,
+            byteEn  : convertBytePtr2ByteEn(csrCmplBytes),
+            isFirst : True,
+            isLast  : True
+        };
+        tlpOutFifo.enq(stream);
     endrule
 
     // DMA Csr Ifc

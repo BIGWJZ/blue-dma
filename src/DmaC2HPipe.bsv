@@ -34,6 +34,7 @@ module mkBdmaC2HPipe#(DmaPathNo pathIdx)(BdmaC2HPipe);
     C2HWriteCore writeCore <- mkC2HWriteCore(pathIdx);
 
     Reg#(Bool) isInitDoneReg <- mkReg(False);
+    Reg#(Bool) isInWriteCoreOutputReg <- mkReg(False);
 
     FIFOF#(BdmaUserC2hWrReq)  wrReqInFifo   <- mkFIFOF;
     FIFOF#(BdmaUserC2hWrResp) wrRespOutFifo <- mkFIFOF;
@@ -43,7 +44,7 @@ module mkBdmaC2HPipe#(DmaPathNo pathIdx)(BdmaC2HPipe);
     FIFOF#(DataStream)     tlpOutFifo      <- mkFIFOF;
     FIFOF#(SideBandByteEn) tlpSideBandFifo <- mkFIFOF;
 
-    rule forwardWrReq;
+    rule forwardWrReq if (isInitDoneReg);
         let req = wrReqInFifo.first;
         wrReqInFifo.deq;
         writeCore.dataFifoIn.enq(req.dataStream);
@@ -52,15 +53,17 @@ module mkBdmaC2HPipe#(DmaPathNo pathIdx)(BdmaC2HPipe);
             length   : req.len,
             isWrite  : True
         });
+        $display($time, "ns SIM INFO @ mkBdmaC2HPipe%d: recv new request, startAddr:%d length:%d isWrite:%b",
+                pathIdx, req.addr, req.len, 1);
     endrule
 
-    rule forwardWrResp;
+    rule forwardWrResp if (isInitDoneReg);
         let rv = writeCore.doneFifoOut.first;
         writeCore.doneFifoOut.deq;
         wrRespOutFifo.enq(BdmaUserC2hWrResp{ });
     endrule
 
-    rule forwardRdReq;
+    rule forwardRdReq if (isInitDoneReg);
         let req = rdReqInFifo.first;
         rdReqInFifo.deq;
         readCore.rdReqFifoIn.enq(DmaRequest {
@@ -68,14 +71,40 @@ module mkBdmaC2HPipe#(DmaPathNo pathIdx)(BdmaC2HPipe);
             length   : req.len,
             isWrite  : False
         });
+        $display($time, "ns SIM INFO @ mkBdmaC2HPipe%d: recv new request, startAddr:%d length:%d isWrite:%b",
+                pathIdx, req.addr, req.len, 0);
     endrule
 
-    rule forwardRdResp;
+    rule forwardRdResp if (isInitDoneReg);
         let stream = readCore.dataFifoOut.first;
         readCore.dataFifoOut.deq;
         rdRespOutFifo.enq(BdmaUserC2hRdResp{
             dataStream: stream
         });
+    endrule
+
+    rule muxTlpOut;
+        if (isInWriteCoreOutputReg) begin
+            let tlpStream = writeCore.tlpFifoOut.first;
+            tlpOutFifo.enq(tlpStream);
+            writeCore.tlpFifoOut.deq;
+            isInWriteCoreOutputReg <= !tlpStream.isLast;
+        end
+        else begin
+            if (readCore.tlpFifoOut.notEmpty) begin
+                tlpOutFifo.enq(readCore.tlpFifoOut.first);
+                tlpSideBandFifo.enq(readCore.tlpSideBandFifoOut.first);
+                readCore.tlpFifoOut.deq;
+                readCore.tlpSideBandFifoOut.deq;
+            end
+            else begin
+                tlpOutFifo.enq(writeCore.tlpFifoOut.first);
+                tlpSideBandFifo.enq(writeCore.tlpSideBandFifoOut.first);
+                writeCore.tlpFifoOut.deq;
+                writeCore.tlpSideBandFifoOut.deq;
+                isInWriteCoreOutputReg <= !writeCore.tlpFifoOut.first.isLast;
+            end
+        end
     endrule
 
     // User Ifc
@@ -308,7 +337,7 @@ module mkC2HReadCore#(DmaPathNo pathIdx)(C2HReadCore);
         let stream = cBuffer.drain.first;
         cBuffer.drain.deq;
         reshapeRcb.streamFifoIn.enq(stream);
-        $display("cbuf output", fshow(stream));
+        // $display("cbuf output", fshow(stream));
     endrule
 
     // Pipeline stage 4: there may be bubbles in the first and last DataStream of a request because of MRRS split
@@ -357,7 +386,7 @@ module mkC2HReadCore#(DmaPathNo pathIdx)(C2HReadCore);
                 tag      :  convertSlotTokenToTag(token, pathIdx)
             };
         rqDescGenerator.exReqFifoIn.enq(exReq);
-        $display($time, "ns SIM INFO @ mkDmaC2HReadCore%d: tx a new read chunk, tag:%d, addr:%d, length:%d", pathIdx, exReq.tag, req.startAddr, req.length);
+        // $display($time, "ns SIM INFO @ mkDmaC2HReadCore%d: tx a new read chunk, tag:%d, addr:%d, length:%d", pathIdx, exReq.tag, req.startAddr, req.length);
     endrule
 
     // Pipeline stage 3: generate Tlp to PCIe Adapter
@@ -370,7 +399,7 @@ module mkC2HReadCore#(DmaPathNo pathIdx)(C2HReadCore);
         stream.isLast  = True;
         tlpOutFifo.enq(stream);
         tlpByteEnFifo.enq(sideBandByteEn);
-        // $display($time, "ns SIM INFO @ mkDmaC2HReadCore: output new tlp, BE:%h/%h", tpl_1(sideBandByteEn), tpl_2(sideBandByteEn));
+        // $display($time, "ns SIM INFO @ mkDmaC2HReadCore%d: output new tlp, BE:%h/%h", pathIdx, tpl_1(sideBandByteEn), tpl_2(sideBandByteEn));
     endrule
 
     // User Logic Ifc
