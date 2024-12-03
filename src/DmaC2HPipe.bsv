@@ -167,7 +167,6 @@ module mkDmaC2HPipe#(DmaPathNo pathIdx)(DmaC2HPipe);
         else begin
             readCore.rdReqFifoIn.enq(req);
         end
-        $display(" ");
         $display($time, "ns SIM INFO @ mkDmaC2HPipe%d: recv new request, startAddr:%d length:%d isWrite:%b",
                 pathIdx, req.startAddr, req.length,  pack(req.isWrite));
     endrule
@@ -358,6 +357,7 @@ module mkC2HReadCore#(DmaPathNo pathIdx)(C2HReadCore);
             end
             rcvReqCntReg <= rcvReqCnt;
         end
+        stream.isFirst = stream.isFirst && (rcvReqCntReg == 1);
         reshapeMrrs.streamFifoIn.enq(stream);
     endrule
 

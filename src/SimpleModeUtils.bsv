@@ -195,11 +195,11 @@ module mkPhyAddrBram(PhyAddrBram);
                 };
             if (isLoAddr(paSet.addr)) begin
                 phyAddrLoBram.portA.request.put(bramReq);
-                // $display($time, "ns SIM INFO @ mkPhyAddrBram: pa writing, va offset:%d, mapping pa low:%h", bramAddr, bramReq.datain );
+                $display($time, "ns SIM INFO @ mkPhyAddrBram: pa writing, va offset:%d, mapping pa low:%h", bramAddr, bramReq.datain );
             end
             else begin
                 phyAddrHiBram.portA.request.put(bramReq);
-                // $display($time, "ns SIM INFO @ mkPhyAddrBram: pa writing, va offset:%d, mapping pa low:%h", bramAddr, bramReq.datain);
+                $display($time, "ns SIM INFO @ mkPhyAddrBram: pa writing, va offset:%d, mapping pa high:%h", bramAddr, bramReq.datain);
             end
             
         end
@@ -216,7 +216,7 @@ module mkPhyAddrBram(PhyAddrBram);
             phyAddrLoBram.portA.request.put(bramReq);
             phyAddrHiBram.portA.request.put(bramReq);
             pendingFifo.enq(vaReq);
-            // $display($time, "ns SIM INFO @ mkPhyAddrBram: receive pa mapping request, va:%h", vaReq.startAddr);
+            $display($time, "ns SIM INFO @ mkPhyAddrBram: receive pa mapping request, va:%h, bramAddr:%d", vaReq.startAddr, bramReq.address);
         end
     endrule
 
@@ -226,7 +226,7 @@ module mkPhyAddrBram(PhyAddrBram);
         DmaMemAddr pa = doubleExtend(pa_lo, pa_hi);
         let oriReq = pendingFifo.first;
         pendingFifo.deq;
-        $display($time, "ns SIM INFO @ mkPhyAddrBram: got a pa mapping, va:%h pa:%h", oriReq.startAddr, pa);
+        $display($time, "ns SIM INFO @ mkPhyAddrBram: got a pa mapping, va:%h pa:%h pa_lo:%h pa_hi:%h", oriReq.startAddr, pa, pa_lo, pa_hi);
         oriReq.startAddr = pa | (oriReq.startAddr & pageMask);
         paReqFifo.enq(oriReq);
     endrule

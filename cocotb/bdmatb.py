@@ -389,8 +389,8 @@ class BdmaSimpleTb(BdmaTb):
         page_offset = page_offset & 0x1FF
         paLo = pa & 0xFFFFFFFF
         paHi = (pa >> 32) & 0xFFFFFFFF
-        await self.write_register(base_addr + 2*page_offset, paLo)
-        await self.write_register(base_addr + 2*page_offset + 1, paHi)
+        await self.write_register(base_addr + 2*page_offset + 1, paLo)
+        await self.write_register(base_addr + 2*page_offset, paHi)
         
     async def memory_map(self):
         self.log.info("BdmaTb: Starting memory map...")
@@ -438,8 +438,8 @@ class BdmaLoopTb(BdmaTb):
         page_offset = page_offset & 0x1FF
         paLo = pa & 0xFFFFFFFF
         paHi = (pa >> 32) & 0xFFFFFFFF
-        await self.write_register(base_addr + 2*page_offset, paLo)
-        await self.write_register(base_addr + 2*page_offset + 1, paHi)
+        await self.write_register(base_addr + 2*page_offset + 1, paLo)
+        await self.write_register(base_addr + 2*page_offset, paHi)
 
     async def memory_map(self):
         self.log.info("BdmaTb: Starting memory map...")

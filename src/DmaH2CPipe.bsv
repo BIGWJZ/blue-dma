@@ -63,7 +63,6 @@ module mkBdmaH2CPipe(BdmaH2CPipe#(sz_csr_addr, sz_csr_data))
     rule handleRdResp;
         let value = rdRespQ.first.data;
         rdRespQ.deq;
-        $display("Get Blue-Rdma Register, value:%d\n", value);
         pipe.userRespFifoIn.enq(CsrResponse{
             addr : 0,
             value: zeroExtend(value)
@@ -169,7 +168,7 @@ module mkDmaH2CPipe(DmaH2CPipe);
                         end
                         else if (descriptor.barId == 1) begin
                             userOutFifo.enq(req);
-                            $display($time, "ns SIM INFO @ mkDmaH2CPipe: Valid User Bar rdReq, addr %h", getBarAddrFromCqDescriptor(descriptor));
+                            // $display($time, "ns SIM INFO @ mkDmaH2CPipe: Valid User Bar rdReq, addr %h", getBarAddrFromCqDescriptor(descriptor));
                         end
                         pendingFifo.enq(tuple2(req, descriptor));
                     end

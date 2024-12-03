@@ -17,13 +17,12 @@ rtl_dir = tests_dir
 async def loop_write_read_once(pcie_tb, mem):
     # addr, length = pcie_tb.gen_random_req(0)
     addr = 1
-    length = 129
+    length = 2378
     addr = mem.get_absolute_address(addr)
     char = bytes(random.choice('abcdefghijklmnopqrstuvwxyz'), encoding="UTF-8")
     data = char * length
     mem[addr:addr+length] = data
     await pcie_tb.run_single_read_once(0, addr, length)
-    await Timer(length, units='ns')
     new_addr = addr + 8192
     await pcie_tb.run_single_write_once(0, new_addr, length)
     await Timer(200+4*length, units='ns')
