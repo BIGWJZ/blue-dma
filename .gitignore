@@ -2,3 +2,5 @@
 **/verilog/**
 **/*.log
 img/*.drawio
+**/output/**
+**/.Xil/**

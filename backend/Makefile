@@ -5,22 +5,35 @@ CLK ?= rdma_clock
 OOC ?= 1
 VLOGDIR ?= verilog
 OUTPUTDIR ?= output
-LOGFILE ?= run.log
-RUNTOPHASE ?= place # synth place route all
-PARTNAME = xcvu13p-fhgb2104-2-i
+LOGFILE ?= run_vivado.log
+RUNTOPHASE ?= synth # synth place route all
+# vu13p, u200
+TARGETPLATFORM ?= u200
+# xcvu13p-fhgb2104-2-i, xcu200-fsgd2104-2-e
+PARTNAME = xcu200-fsgd2104-2-e
 TARGETFILE ?= ../src/DmaWrapper.bsv
 #MODULE List: mkRawSimpleDmaController mkRawBypassDmaController mkRawTestDmaController
-TOPMODULE ?= mkRawSimpleDmaController
+TOPMODULE ?= mkRawTestDmaController
 
-export TOP = $(TOPMODULE)
-export RTL = $(VLOGDIR)
-export XDC = $(TCLDIR)
-export IPS = $(SRCDIR)/ip/$(PARTNAME)
-export CLOCKS = $(CLK)
-export OUTPUT = $(OUTPUTDIR)
+BACKENDDIR ?= .
+
+VERILOG_TOPMODULE ?= top
+MAX_NET_PATH_NUM ?= 100000
+
+export DIR_RTL = $(VLOGDIR)
+export DIR_BOARD = $(TARGETPLATFORM)
+export DIR_XDC = $(TARGETPLATFORM)/$(TCLDIR)
+export DIR_OOC_SCRIPTS = $(BACKENDDIR)/ooc_tcl_and_xdc
+export DIR_IPS = $(BACKENDDIR)/ips
+export DIR_IP_GENERATED = $(BUILDDIR)/ips
+export DIR_BSV_GENERATED = $(BACKENDDIR)/verilog
+export VERILOG_TOPMODULE
+export TARGET_CLOCKS = $(CLK)
+export DIR_OUTPUT = $(OUTPUTDIR)
 export OOCSYNTH = $(OOC)
 export RUNTO = $(RUNTOPHASE)
 export PART = $(PARTNAME)
+export MAX_NET_PATH_NUM
 
 compile:
 	mkdir -p $(BUILDDIR)
@@ -31,8 +44,14 @@ verilog: compile
 	bsc $(VERILOGFLAGS) $(DIRFLAGS) $(MISCFLAGS) $(RECOMPILEFLAGS) $(RUNTIMEFLAGS) $(TRANSFLAGS) -g $(TOPMODULE) $(TARGETFILE)
 	bluetcl listVlogFiles.tcl -bdir $(BUILDDIR) -vdir $(BUILDDIR) $(TOPMODULE) $(TOPMODULE) | grep -i '\.v' | xargs -I {} cp {} $(VLOGDIR)
 
-# vivado: verilog
-# 	vivado -mode tcl -nolog -nojournal -source ./non_project_build.tcl 2>&1 | tee $(LOGFILE)
+vivado: 
+	vivado -mode tcl -nolog -nojournal -source ./build_top.tcl 2>&1 | tee $(LOGFILE)
+
+vivado_synth:
+	vivado -mode tcl -nolog -nojournal -source ./build_top.tcl -tclargs synth 2>&1 | tee $(LOGFILE)
+
+vivado_prw:
+	vivado -mode tcl -nolog -nojournal -source ./build_top.tcl -tclargs prw 2>&1 | tee $(LOGFILE)
 
 clean:
 	rm -rf $(BUILDDIR) $(OUTPUTDIR) $(VLOGDIR) .Xil *.jou *.log

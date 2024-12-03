@@ -1,0 +1,1 @@
+create_clock -name bsv_clk -period 4 [get_ports CLK]

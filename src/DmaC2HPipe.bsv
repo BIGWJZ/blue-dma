@@ -150,6 +150,7 @@ module mkDmaC2HPipe#(DmaPathNo pathIdx)(DmaC2HPipe);
     C2HWriteCore writeCore <- mkC2HWriteCore(pathIdx);
 
     Reg#(Bool) isInitDoneReg <- mkReg(False);
+    Reg#(Bool) isInWriteCoreOutputReg <- mkReg(False);
 
     FIFOF#(DataStream) dataInFifo   <- mkFIFOF;
     FIFOF#(DmaRequest) reqInFifo    <- mkFIFOF;
@@ -171,20 +172,44 @@ module mkDmaC2HPipe#(DmaPathNo pathIdx)(DmaC2HPipe);
                 pathIdx, req.startAddr, req.length,  pack(req.isWrite));
     endrule
 
-    rule tlpOutMux;
-        if (readCore.tlpFifoOut.notEmpty) begin
-            tlpOutFifo.enq(readCore.tlpFifoOut.first);
-            tlpSideBandFifo.enq(readCore.tlpSideBandFifoOut.first);
-            readCore.tlpSideBandFifoOut.deq;
-            readCore.tlpFifoOut.deq;
+    // rule tlpOutMux;
+    //     if (readCore.tlpFifoOut.notEmpty) begin
+    //         tlpOutFifo.enq(readCore.tlpFifoOut.first);
+    //         tlpSideBandFifo.enq(readCore.tlpSideBandFifoOut.first);
+    //         readCore.tlpSideBandFifoOut.deq;
+    //         readCore.tlpFifoOut.deq;
+    //     end
+    //     else begin
+    //         if (writeCore.tlpSideBandFifoOut.notEmpty) begin
+    //             tlpSideBandFifo.enq(writeCore.tlpSideBandFifoOut.first);
+    //             writeCore.tlpSideBandFifoOut.deq;
+    //         end
+    //         tlpOutFifo.enq(writeCore.tlpFifoOut.first);
+    //         writeCore.tlpFifoOut.deq;
+    //     end
+    // endrule
+
+    rule muxTlpOut;
+        if (isInWriteCoreOutputReg) begin
+            let tlpStream = writeCore.tlpFifoOut.first;
+            tlpOutFifo.enq(tlpStream);
+            writeCore.tlpFifoOut.deq;
+            isInWriteCoreOutputReg <= !tlpStream.isLast;
         end
         else begin
-            if (writeCore.tlpSideBandFifoOut.notEmpty) begin
-                tlpSideBandFifo.enq(writeCore.tlpSideBandFifoOut.first);
-                writeCore.tlpSideBandFifoOut.deq;
+            if (readCore.tlpFifoOut.notEmpty) begin
+                tlpOutFifo.enq(readCore.tlpFifoOut.first);
+                tlpSideBandFifo.enq(readCore.tlpSideBandFifoOut.first);
+                readCore.tlpFifoOut.deq;
+                readCore.tlpSideBandFifoOut.deq;
             end
-            tlpOutFifo.enq(writeCore.tlpFifoOut.first);
-            writeCore.tlpFifoOut.deq;
+            else begin
+                tlpOutFifo.enq(writeCore.tlpFifoOut.first);
+                tlpSideBandFifo.enq(writeCore.tlpSideBandFifoOut.first);
+                writeCore.tlpFifoOut.deq;
+                writeCore.tlpSideBandFifoOut.deq;
+                isInWriteCoreOutputReg <= !writeCore.tlpFifoOut.first.isLast;
+            end
         end
     endrule
 
