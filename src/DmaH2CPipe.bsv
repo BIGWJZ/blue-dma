@@ -2,6 +2,7 @@ import FIFOF::*;
 import Vector::*;
 import RegFile::*;
 import ClientServer::*;
+import Connectable :: *;
 
 import SemiFifo::*;
 import BdmaPrimUtils::*;
@@ -10,6 +11,7 @@ import PcieTypes::*;
 import PcieDescriptorTypes::*;
 import PcieAdapter::*;
 import DmaTypes::*;
+import SimpleModeUtils::*;
 
 typedef 1 IDEA_CQ_CSR_DWORD_CNT;
 typedef 1 IDEA_CC_CSR_DWORD_CNT;
@@ -37,6 +39,10 @@ module mkBdmaH2CPipe(BdmaH2CPipe#(sz_csr_addr, sz_csr_data))
     FIFOF#(BdmaUserH2cWrResp) wrRespQ <- mkFIFOF;
     FIFOF#(BdmaUserH2cRdReq#(sz_csr_addr))  rdReqQ  <- mkFIFOF;
     FIFOF#(BdmaUserH2cRdResp#(sz_csr_data)) rdRespQ <- mkFIFOF;
+    let dummyCsr <- mkDummyCsr;
+
+    mkConnection(pipe.csrReqFifoOut, dummyCsr.reqFifoIn);
+    mkConnection(dummyCsr.respFifoOut, pipe.csrRespFifoIn);
 
     rule forwardReq;
         let h2cReq = pipe.userReqFifoOut.first;
@@ -137,6 +143,7 @@ module mkDmaH2CPipe(DmaH2CPipe);
         if (!isInPacket) begin
             let descriptor  = getDescriptorFromFirstBeat(stream);
             if (descriptor.dwordCnt == fromInteger(valueOf(IDEA_CQ_CSR_DWORD_CNT))) begin
+                // $display($time, "ns SIM INFO @ mkDmaH2CPipe: recv CQ, address: %h\n", descriptor.address);
                 case (descriptor.reqType) 
                     fromInteger(valueOf(MEM_WRITE_REQ)): begin
                         let firstData = getDataFromFirstBeat(stream);

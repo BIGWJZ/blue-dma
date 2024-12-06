@@ -254,6 +254,7 @@ module mkDummyCsr(GenericCsr);
     rule request;
         let req = reqFifo.first;
         reqFifo.deq;
+        pendingFifo.enq(req.addr);
         let bramReq = BRAMRequest {
             write   : req.isWrite,
             responseOnWrite : False,

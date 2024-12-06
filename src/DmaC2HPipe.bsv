@@ -172,22 +172,6 @@ module mkDmaC2HPipe#(DmaPathNo pathIdx)(DmaC2HPipe);
                 pathIdx, req.startAddr, req.length,  pack(req.isWrite));
     endrule
 
-    // rule tlpOutMux;
-    //     if (readCore.tlpFifoOut.notEmpty) begin
-    //         tlpOutFifo.enq(readCore.tlpFifoOut.first);
-    //         tlpSideBandFifo.enq(readCore.tlpSideBandFifoOut.first);
-    //         readCore.tlpSideBandFifoOut.deq;
-    //         readCore.tlpFifoOut.deq;
-    //     end
-    //     else begin
-    //         if (writeCore.tlpSideBandFifoOut.notEmpty) begin
-    //             tlpSideBandFifo.enq(writeCore.tlpSideBandFifoOut.first);
-    //             writeCore.tlpSideBandFifoOut.deq;
-    //         end
-    //         tlpOutFifo.enq(writeCore.tlpFifoOut.first);
-    //         writeCore.tlpFifoOut.deq;
-    //     end
-    // endrule
 
     rule muxTlpOut;
         if (isInWriteCoreOutputReg) begin
@@ -200,7 +184,6 @@ module mkDmaC2HPipe#(DmaPathNo pathIdx)(DmaC2HPipe);
             if (readCore.tlpFifoOut.notEmpty) begin
                 tlpOutFifo.enq(readCore.tlpFifoOut.first);
                 tlpSideBandFifo.enq(readCore.tlpSideBandFifoOut.first);
-                readCore.tlpFifoOut.deq;
                 readCore.tlpSideBandFifoOut.deq;
             end
             else begin
